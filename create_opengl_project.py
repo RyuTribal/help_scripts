@@ -543,6 +543,59 @@ def build_glad_patch_script() -> str:
     ).strip() + "\n"
 
 
+def build_gitignore() -> str:
+    return textwrap.dedent(
+        """\
+        # Build artifacts
+        /build/
+        /cmake-build-*/
+        /CMakeFiles/
+        /Testing/
+        CMakeCache.txt
+        CMakeScripts/
+        Makefile
+        cmake_install.cmake
+        install_manifest.txt
+        compile_commands.json
+        build.ninja
+        *.ninja
+        *.o
+        *.obj
+        *.lo
+        *.la
+        *.a
+        *.so
+        *.dylib
+        *.dll
+        *.exe
+        *.pdb
+
+        # External deps fetched by CMake
+        /_deps/
+
+        # IDE / editor metadata
+        /.idea/
+        /.vscode/
+        *.code-workspace
+
+        # Misc
+        .DS_Store
+        Thumbs.db
+        """
+    ).strip() + "\n"
+
+
+def build_ignore_file() -> str:
+    return textwrap.dedent(
+        """\
+        # Ignore bulky build output when searching (used by ripgrep / Telescope)
+        build/
+        cmake-build-*/
+        _deps/
+        """
+    ).strip() + "\n"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create a C++ OpenGL project skeleton.")
     parser.add_argument("name", nargs="?", help="Project display name (prompts if omitted).")
@@ -589,6 +642,8 @@ def main() -> None:
         safe_write(build_sh_path, build_build_script(slug), args.force)
         build_sh_path.chmod(0o755)
         safe_write(cmake_dir / "patch_glad.cmake", build_glad_patch_script(), args.force)
+        safe_write(project_dir / ".gitignore", build_gitignore(), args.force)
+        safe_write(project_dir / ".ignore", build_ignore_file(), args.force)
     except Exception as exc:
         sys.exit(f"Failed to write project files: {exc}")
 
