@@ -131,7 +131,7 @@ def build_main_cpp(display_name: str) -> str:
         int main() {{
             try {{
                 Application app("{display_name}", 1280, 720);
-                app.run();
+                app.Run();
             }} catch (const std::exception& e) {{
                 std::fprintf(stderr, "Fatal error: %s\\n", e.what());
                 return EXIT_FAILURE;
@@ -159,18 +159,19 @@ def build_application_hpp() -> str:
             Application(const Application&) = delete;
             Application& operator=(const Application&) = delete;
 
-            void run();
+            void Run();
 
-        private:
-            void init();
-            void shutdown();
+        private: // Methods
+            void Initialize();
+            void Shutdown();
 
-            std::string title_;
-            int width_;
-            int height_;
-            GLFWwindow* window_{nullptr};
-            bool glfw_initialized_{false};
-            bool imgui_initialized_{false};
+        private: // Members
+            std::string m_Title;
+            int m_Width;
+            int m_Height;
+            GLFWwindow* m_Window{{nullptr}};
+            bool m_GlfwInitialized{{false}};
+            bool m_ImguiInitialized{{false}};
         };
         """
     ).strip() + "\n"
@@ -206,20 +207,20 @@ def build_application_cpp() -> str:
         } // namespace
 
         Application::Application(std::string title, int width, int height)
-            : title_(std::move(title)), width_(width), height_(height) {
-            init();
+            : m_Title(std::move(title)), m_Width(width), m_Height(height) {
+            Initialize();
         }
 
         Application::~Application() {
-            shutdown();
+            Shutdown();
         }
 
-        void Application::init() {
+        void Application::Initialize() {
             glfwSetErrorCallback(glfw_error_callback);
             if (!glfwInit()) {
                 throw std::runtime_error("Failed to initialize GLFW.");
             }
-            glfw_initialized_ = true;
+            m_GlfwInitialized = true;
 
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
@@ -228,12 +229,12 @@ def build_application_cpp() -> str:
             glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
         #endif
 
-            window_ = glfwCreateWindow(width_, height_, title_.c_str(), nullptr, nullptr);
-            if (!window_) {
+            m_Window = glfwCreateWindow(m_Width, m_Height, m_Title.c_str(), nullptr, nullptr);
+            if (!m_Window) {
                 throw std::runtime_error("Failed to create GLFW window.");
             }
 
-            glfwMakeContextCurrent(window_);
+            glfwMakeContextCurrent(m_Window);
             glfwSwapInterval(1);
 
             if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
@@ -241,11 +242,11 @@ def build_application_cpp() -> str:
             }
 
             glfwSetFramebufferSizeCallback(
-                window_, [](GLFWwindow*, int width, int height) { glViewport(0, 0, width, height); });
+                m_Window, [](GLFWwindow*, int width, int height) { glViewport(0, 0, width, height); });
 
             int framebuffer_width = 0;
             int framebuffer_height = 0;
-            glfwGetFramebufferSize(window_, &framebuffer_width, &framebuffer_height);
+            glfwGetFramebufferSize(m_Window, &framebuffer_width, &framebuffer_height);
             glViewport(0, 0, framebuffer_width, framebuffer_height);
 
             IMGUI_CHECKVERSION();
@@ -254,24 +255,24 @@ def build_application_cpp() -> str:
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
             ImGui::StyleColorsDark();
 
-            if (!ImGui_ImplGlfw_InitForOpenGL(window_, true)) {
+            if (!ImGui_ImplGlfw_InitForOpenGL(m_Window, true)) {
                 throw std::runtime_error("Failed to initialize Dear ImGui GLFW backend.");
             }
             if (!ImGui_ImplOpenGL3_Init("#version 410")) {
                 throw std::runtime_error("Failed to initialize Dear ImGui OpenGL backend.");
             }
 
-            imgui_initialized_ = true;
+            m_ImguiInitialized = true;
         }
 
-        void Application::run() {
-            if (!window_) {
+        void Application::Run() {
+            if (!m_Window) {
                 throw std::runtime_error("Application window is not available.");
             }
 
             glm::vec3 clear_color{0.10f, 0.13f, 0.17f};
 
-            while (!glfwWindowShouldClose(window_)) {
+            while (!glfwWindowShouldClose(m_Window)) {
                 glfwPollEvents();
 
                 ImGui_ImplOpenGL3_NewFrame();
@@ -279,7 +280,7 @@ def build_application_cpp() -> str:
                 ImGui::NewFrame();
 
                 ImGui::Begin("Hello, ImGui");
-                ImGui::Text("Welcome to %s", title_.c_str());
+                ImGui::Text("Welcome to %s", m_Title.c_str());
                 ImGui::ColorEdit3("Clear Color", glm::value_ptr(clear_color));
                 ImGui::Text("Renderer: %s", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
                 ImGui::Text("OpenGL: %s", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
@@ -292,28 +293,28 @@ def build_application_cpp() -> str:
 
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-                glfwSwapBuffers(window_);
+                glfwSwapBuffers(m_Window);
             }
         }
 
-        void Application::shutdown() {
-            if (imgui_initialized_) {
+        void Application::Shutdown() {
+            if (m_ImguiInitialized) {
                 ImGui_ImplOpenGL3_Shutdown();
                 ImGui_ImplGlfw_Shutdown();
                 ImGui::DestroyContext();
-                imgui_initialized_ = false;
+                m_ImguiInitialized = false;
             } else if (ImGui::GetCurrentContext()) {
                 ImGui::DestroyContext();
             }
 
-            if (window_) {
-                glfwDestroyWindow(window_);
-                window_ = nullptr;
+            if (m_Window) {
+                glfwDestroyWindow(m_Window);
+                m_Window = nullptr;
             }
 
-            if (glfw_initialized_) {
+            if (m_GlfwInitialized) {
                 glfwTerminate();
-                glfw_initialized_ = false;
+                m_GlfwInitialized = false;
             }
         }
         """
