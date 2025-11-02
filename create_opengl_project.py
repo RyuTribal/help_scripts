@@ -102,11 +102,13 @@ def build_cmakelists(project_name: str) -> str:
         )
         target_link_libraries(imgui_backend PUBLIC glfw glad)
         target_compile_definitions(imgui_backend PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
-
-        add_executable(${{PROJECT_NAME}}
-            src/main.cpp
-            src/Application.cpp
+        
+        file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
+            "${CMAKE_SOURCE_DIR}/src/*.cpp"
+            "${CMAKE_SOURCE_DIR}/src/*.c"
         )
+
+        add_executable(${PROJECT_NAME} ${SRC_FILES})
 
         target_include_directories(${{PROJECT_NAME}} PRIVATE src)
         target_link_libraries(${{PROJECT_NAME}} PRIVATE glfw glad imgui_backend glm::glm)
@@ -164,6 +166,8 @@ def build_application_hpp() -> str:
         private: // Methods
             void Initialize();
             void Shutdown();
+            void OnFramebufferResized(int width, int height);
+            void OnContentScaleChanged(float xScale, float yScale);
 
         private: // Members
             std::string m_Title;
@@ -172,6 +176,10 @@ def build_application_hpp() -> str:
             GLFWwindow* m_Window{nullptr};
             bool m_GlfwInitialized{false};
             bool m_ImguiInitialized{false};
+            int m_FramebufferWidth{0};
+            int m_FramebufferHeight{0};
+            float m_ContentScaleX{1.0f};
+            float m_ContentScaleY{1.0f};
         };
         """
     ).strip() + "\n"
@@ -207,7 +215,11 @@ def build_application_cpp() -> str:
         } // namespace
 
         Application::Application(std::string title, int width, int height)
-            : m_Title(std::move(title)), m_Width(width), m_Height(height) {
+            : m_Title(std::move(title)),
+              m_Width(width),
+              m_Height(height),
+              m_FramebufferWidth(width),
+              m_FramebufferHeight(height) {
             Initialize();
         }
 
@@ -228,6 +240,7 @@ def build_application_cpp() -> str:
         #if defined(__APPLE__)
             glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
         #endif
+            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
             m_Window = glfwCreateWindow(m_Width, m_Height, m_Title.c_str(), nullptr, nullptr);
             if (!m_Window) {
@@ -237,17 +250,35 @@ def build_application_cpp() -> str:
             glfwMakeContextCurrent(m_Window);
             glfwSwapInterval(1);
 
+            glfwSetWindowUserPointer(m_Window, this);
             if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
                 throw std::runtime_error("Failed to initialize GLAD.");
             }
 
             glfwSetFramebufferSizeCallback(
-                m_Window, [](GLFWwindow*, int width, int height) { glViewport(0, 0, width, height); });
+                m_Window, [](GLFWwindow* window, int width, int height) {
+                    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+                    if (app) {
+                        app->OnFramebufferResized(width, height);
+                    }
+                });
+            glfwSetWindowContentScaleCallback(
+                m_Window, [](GLFWwindow* window, float xScale, float yScale) {
+                    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+                    if (app) {
+                        app->OnContentScaleChanged(xScale, yScale);
+                    }
+                });
 
-            int framebuffer_width = 0;
-            int framebuffer_height = 0;
-            glfwGetFramebufferSize(m_Window, &framebuffer_width, &framebuffer_height);
-            glViewport(0, 0, framebuffer_width, framebuffer_height);
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            glfwGetFramebufferSize(m_Window, &framebufferWidth, &framebufferHeight);
+            OnFramebufferResized(framebufferWidth, framebufferHeight);
+
+            float xScale = 1.0f;
+            float yScale = 1.0f;
+            glfwGetWindowContentScale(m_Window, &xScale, &yScale);
+            OnContentScaleChanged(xScale, yScale);
 
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
@@ -270,7 +301,7 @@ def build_application_cpp() -> str:
                 throw std::runtime_error("Application window is not available.");
             }
 
-            glm::vec3 clear_color{0.10f, 0.13f, 0.17f};
+            glm::vec3 clearColor{0.10f, 0.13f, 0.17f};
 
             while (!glfwWindowShouldClose(m_Window)) {
                 glfwPollEvents();
@@ -281,14 +312,14 @@ def build_application_cpp() -> str:
 
                 ImGui::Begin("Hello, ImGui");
                 ImGui::Text("Welcome to %s", m_Title.c_str());
-                ImGui::ColorEdit3("Clear Color", glm::value_ptr(clear_color));
+                ImGui::ColorEdit3("Clear Color", glm::value_ptr(clearColor));
                 ImGui::Text("Renderer: %s", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
                 ImGui::Text("OpenGL: %s", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
                 ImGui::End();
 
                 ImGui::Render();
 
-                glClearColor(clear_color.r, clear_color.g, clear_color.b, 1.0f);
+                glClearColor(clearColor.r, clearColor.g, clearColor.b, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT);
 
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -317,6 +348,22 @@ def build_application_cpp() -> str:
                 m_GlfwInitialized = false;
             }
         }
+
+        void Application::OnFramebufferResized(int width, int height) {
+            m_FramebufferWidth = width > 0 ? width : 1;
+            m_FramebufferHeight = height > 0 ? height : 1;
+            glViewport(0, 0, m_FramebufferWidth, m_FramebufferHeight);
+        }
+
+        void Application::OnContentScaleChanged(float xScale, float yScale) {
+            m_ContentScaleX = xScale > 0.0f ? xScale : 1.0f;
+            m_ContentScaleY = yScale > 0.0f ? yScale : 1.0f;
+
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            glfwGetFramebufferSize(m_Window, &framebufferWidth, &framebufferHeight);
+            OnFramebufferResized(framebufferWidth, framebufferHeight);
+        }
         """
     ).strip() + "\n"
 
@@ -338,15 +385,13 @@ def build_readme(display_name: str, slug: str) -> str:
         Or use the provided helper script:
 
         ```bash
-        ./build.sh [Debug|Release|RelWithDebInfo|MinSizeRel] [-r|--run] [-fmt|--format]
+        ./build.sh [Debug|Release|RelWithDebInfo|MinSizeRel] [-r|--run] 
         ```
 
         Flags (all optional):
 
         - `Debug|Release|RelWithDebInfo|MinSizeRel` — choose the CMake build type (default: `Debug`)
         - `-r`, `--run` — run the built binary after a successful build
-        - `-fmt`, `--format` — run `./scripts/format-all.sh` before configuring (requires that script)
-
         ## Run
 
         ```bash
@@ -395,9 +440,6 @@ def build_build_script(slug: str) -> str:
           -r | --run)
             RUN_AFTER_BUILD=1
             ;;
-          -fmt | --format)
-            FORMAT_AFTER_BUILD=1
-            ;;
           -h | --help)
             usage
             exit 0
@@ -441,65 +483,11 @@ def build_build_script(slug: str) -> str:
           return 1
         }}
 
-        source_oneapi_env() {{
-          # Candidate roots (user first), honor ONEAPI_ROOT if set
-          local roots=()
-          [[ -n "${{ONEAPI_ROOT:-}}" ]] && roots+=("$ONEAPI_ROOT")
-          roots+=("$HOME/intel/oneapi" "/opt/intel/oneapi")
-          local r path
-          local candidates=()
-          shopt -s nullglob
-          for r in "${{roots[@]}}"; do
-            candidates+=("$r/oneapi-vars.sh" "$r/setvars.sh")
-            candidates+=("$r"/*/oneapi-vars.sh "$r"/*/setvars.sh)
-          done
-          local _saved_opts
-          _saved_opts="$(set +o)"
-          local _saved_errtrap
-          _saved_errtrap="$(trap -p ERR || true)"
-          trap - ERR
-
-          for path in "${{candidates[@]}}"; do
-            [[ -r "$path" ]] || continue
-            set +e +u
-            set +o pipefail
-            source "$path" intel64 >/dev/null 2>&1 || source "$path" >/dev/null 2>&1
-            local rc=$?
-            eval "$_saved_opts"
-            [[ -n "$_saved_errtrap" ]] && eval "$_saved_errtrap"
-
-            if ((rc == 0)); then
-              echo "✓ oneAPI environment sourced: $path"
-              if [[ -n "${{IPPROOT:-}}" || -n "${{ONEAPI_ROOT:-}}" ]]; then
-                return 0
-              fi
-              _saved_errtrap="$(trap -p ERR || true)"
-              trap - ERR
-            else
-              _saved_errtrap="$(trap -p ERR || true)"
-              trap - ERR
-            fi
-          done
-
-          # Final restore (nothing found)
-          eval "$_saved_opts"
-          [[ -n "$_saved_errtrap" ]] && eval "$_saved_errtrap"
-          echo "⚠ Could not find a working oneAPI env script under $ONEAPI_ROOT, $HOME/intel/oneapi, or /opt/intel/oneapi." >&2
-          echo "   (Unified layout: <root>/<version>/oneapi-vars.sh; component layout: <root>/setvars.sh)" >&2
-          return 1
-        }}
-
-        if [[ $FORMAT_AFTER_BUILD -eq 1 ]]; then
-          echo "Formatting code before build..."
-          ./scripts/format-all.sh
-        fi
-
+       
         cmake -B "$BUILD_DIR" \\
           -DCMAKE_BUILD_TYPE="$TYPE" \\
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
         cmake --build "$BUILD_DIR" --parallel
-
-        source_oneapi_env
 
         echo "Build completed."
 
