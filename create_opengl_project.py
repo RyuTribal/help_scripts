@@ -169,9 +169,9 @@ def build_application_hpp() -> str:
             std::string m_Title;
             int m_Width;
             int m_Height;
-            GLFWwindow* m_Window{{nullptr}};
-            bool m_GlfwInitialized{{false}};
-            bool m_ImguiInitialized{{false}};
+            GLFWwindow* m_Window{nullptr};
+            bool m_GlfwInitialized{false};
+            bool m_ImguiInitialized{false};
         };
         """
     ).strip() + "\n"
